@@ -54,6 +54,9 @@ struct Entity {
     device_class: String,
     unit_of_measurement: String,
     value_template: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expire_after: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +83,7 @@ impl Entity {
         device_class: Option<String>,
         unit_of_measurement: Option<String>,
         value_template: Option<String>,
+        expire_after: Option<u32>,
     ) -> Option<Entity> {
         let id_name = format!("{}-{}", a.name(), sensor);
         Some(Entity {
@@ -89,6 +93,7 @@ impl Entity {
             device_class: device_class?,
             unit_of_measurement: unit_of_measurement?,
             value_template: value_template?,
+            expire_after,
         })
     }
 }
@@ -183,6 +188,7 @@ impl Bridge {
                 self.device_class(v),
                 self.unit_of_measurement(v),
                 self.value_template(v),
+                Some(290),
             ) {
                 Some(e) => e,
                 None => return false,
