@@ -274,6 +274,9 @@ fn server() -> _ {
             .expect("failed to get password from settings"),
         serde_json::from_reader(BufReader::new(file)).expect("failed to parse definitions"),
     );
+
+    println!("Starting airrohr-mqtt-addon 1.0.3");
+
     rocket::build()
         .mount("/", routes![api])
         .manage(Arc::new(Mutex::new(bridge)))
