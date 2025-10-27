@@ -200,7 +200,7 @@ impl Bridge {
         };
         let result = self
             .mqtt
-            .publish(Message::new(
+            .publish(Message::new_retained(
                 format!("homeassistant/sensor/{}/{}/config", &a.name(), v.value_type),
                 json_str,
                 1,
