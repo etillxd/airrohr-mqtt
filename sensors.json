@@ -4,5 +4,5 @@
     "BME280_pressure": {"class": "pressure", "unit": "hPa", "value_template": "{{ float(value) / 100 }}", "state_class": "measurement"},
     "SDS_P1": {"class": "pm10", "unit": "µg/m³", "value_template": "{{ value }}", "state_class": "measurement"},
     "SDS_P2": {"class": "pm25", "unit": "µg/m³", "value_template": "{{ value }}", "state_class": "measurement"},
-    "signal": {"class": "signal_strength", "unit": "dBm", "value_template": "{{ value }}"}
+    "signal": {"class": "signal_strength", "unit": "dBm", "value_template": "{{ value }}", "entity_category": "diagnostic"}
 }
