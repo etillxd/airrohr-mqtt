@@ -16,6 +16,7 @@ struct Sensor {
     class: String,
     unit: String,
     value_template: String,
+    state_class: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +58,9 @@ struct Entity {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     expire_after: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state_class: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +88,7 @@ impl Entity {
         unit_of_measurement: Option<String>,
         value_template: Option<String>,
         expire_after: Option<u32>,
+        state_class: Option<String>,
     ) -> Option<Entity> {
         let id_name = format!("{}-{}", a.name(), sensor);
         Some(Entity {
@@ -94,6 +99,7 @@ impl Entity {
             unit_of_measurement: unit_of_measurement?,
             value_template: value_template?,
             expire_after,
+            state_class,
         })
     }
 }
@@ -179,6 +185,10 @@ impl Bridge {
         Some(self.sensors.get(&v.value_type)?.value_template.clone())
     }
 
+    fn state_class(&self, v: &SensorDataValue) -> Option<String> {
+        self.sensors.get(&v.value_type)?.state_class.clone()
+    }
+
     fn advertise(&mut self, a: &Airrohr, v: &SensorDataValue) -> bool {
         let config = Config {
             device: Device::new(a),
@@ -189,6 +199,7 @@ impl Bridge {
                 self.unit_of_measurement(v),
                 self.value_template(v),
                 Some(290),
+                self.state_class(v),
             ) {
                 Some(e) => e,
                 None => return false,
@@ -275,7 +286,7 @@ fn server() -> _ {
         serde_json::from_reader(BufReader::new(file)).expect("failed to parse definitions"),
     );
 
-    println!("Starting airrohr-mqtt-addon 1.0.3");
+    println!("Starting airrohr-mqtt-addon");
 
     rocket::build()
         .mount("/", routes![api])
