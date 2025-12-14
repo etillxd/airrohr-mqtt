@@ -17,6 +17,7 @@ struct Sensor {
     unit: String,
     value_template: String,
     state_class: Option<String>,
+    entity_category: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,6 +62,9 @@ struct Entity {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     state_class: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entity_category: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,6 +93,7 @@ impl Entity {
         value_template: Option<String>,
         expire_after: Option<u32>,
         state_class: Option<String>,
+        entity_category: Option<String>,
     ) -> Option<Entity> {
         let id_name = format!("{}-{}", a.name(), sensor);
         Some(Entity {
@@ -100,6 +105,7 @@ impl Entity {
             value_template: value_template?,
             expire_after,
             state_class,
+            entity_category,
         })
     }
 }
@@ -189,6 +195,10 @@ impl Bridge {
         self.sensors.get(&v.value_type)?.state_class.clone()
     }
 
+    fn entity_category(&self, v: &SensorDataValue) -> Option<String> {
+        self.sensors.get(&v.value_type)?.entity_category.clone()
+    }
+
     fn advertise(&mut self, a: &Airrohr, v: &SensorDataValue) -> bool {
         let config = Config {
             device: Device::new(a),
@@ -200,6 +210,7 @@ impl Bridge {
                 self.value_template(v),
                 Some(290),
                 self.state_class(v),
+                self.entity_category(v),
             ) {
                 Some(e) => e,
                 None => return false,
