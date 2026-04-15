@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 use paho_mqtt::{Client, ConnectOptionsBuilder, Message};
-use rocket::{http::Status, State};
+use rocket::{catch, catchers, http::Status, State};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -148,14 +148,26 @@ type BridgeReference = Arc<Mutex<Bridge>>;
 
 impl Bridge {
     fn new(mqtturi: &str, user: &str, password: &str, sensors: HashMap<String, Sensor>) -> Bridge {
-        let mqtt = Client::new(mqtturi).unwrap();
+        let mqtt = Client::new(mqtturi).expect("Failed to create MQTT client");
+
         let conn_opts = ConnectOptionsBuilder::new()
             .keep_alive_interval(Duration::from_secs(20))
             .clean_session(true)
             .user_name(user)
             .password(password)
+            .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(140))
             .finalize();
-        mqtt.connect(conn_opts).unwrap();
+
+        if let Err(e) = mqtt.connect(conn_opts) {
+            eprintln!(
+                "CRITICAL: Failed to connect to MQTT broker at {}: {:?}",
+                mqtturi, e
+            );
+            panic!("Could not connect to MQTT broker.");
+        } else {
+            println!("Successfully connected to MQTT broker at {}", mqtturi);
+        }
+
         Bridge {
             devices: HashMap::<String, BridgeDev>::new(),
             mqtt,
@@ -213,59 +225,103 @@ impl Bridge {
                 self.entity_category(v),
             ) {
                 Some(e) => e,
-                None => return false,
+                None => {
+                    eprintln!("Warning: Failed to create Entity for sensor {}", v.value_type);
+                    return false;
+                }
             },
         };
+
         let json_str = match serde_json::to_string(&config) {
             Ok(s) => s,
-            Err(_) => return true,
+            Err(e) => {
+                eprintln!("Error: Failed to serialize Config to JSON: {:?}", e);
+                return true;
+            }
         };
-        let result = self
+
+        let topic = format!("homeassistant/sensor/{}/{}/config", &a.name(), v.value_type);
+
+        match self
             .mqtt
-            .publish(Message::new_retained(
-                format!("homeassistant/sensor/{}/{}/config", &a.name(), v.value_type),
-                json_str,
-                1,
-            ))
-            .is_err();
-        if let Some(b) = self.devices.get_mut(&a.name()) {
-            b.sensors.insert(v.value_type.clone());
+            .publish(Message::new_retained(topic.clone(), json_str, 1))
+        {
+            Ok(_) => {
+                println!("Advertised sensor on topic: {}", topic);
+                if let Some(b) = self.devices.get_mut(&a.name()) {
+                    b.sensors.insert(v.value_type.clone());
+                }
+                false
+            }
+            Err(e) => {
+                eprintln!(
+                    "MQTT Publish Error: Failed to advertise on {}: {:?}",
+                    topic, e
+                );
+                true
+            }
         }
-        result
     }
 
     fn send_data(&self, a: &Airrohr, v: &SensorDataValue) -> bool {
-        self.mqtt
-            .publish(Message::new(
-                a.state_topic(&v.value_type),
-                v.value.clone(),
-                0,
-            ))
-            .is_err()
+        let topic = a.state_topic(&v.value_type);
+
+        match self
+            .mqtt
+            .publish(Message::new(topic.clone(), v.value.clone(), 0))
+        {
+            Ok(_) => false,
+            Err(e) => {
+                eprintln!(
+                    "MQTT Publish Error: Failed to send data to {}: {:?}",
+                    topic, e
+                );
+                true
+            }
+        }
     }
+}
+
+#[catch(500)]
+fn internal_error() -> &'static str {
+    "{\"error\": \"Internal server error. Check server logs.\"}"
 }
 
 #[post("/api", data = "<data>")]
 fn api(dev_ref: &State<BridgeReference>, data: &str) -> Status {
     let mut devices = match dev_ref.lock() {
         Ok(dev) => dev,
-        Err(_) => return Status::InternalServerError,
+        Err(e) => {
+            eprintln!("Error: Mutex lock failed in API route: {:?}", e);
+            return Status::InternalServerError;
+        }
     };
+
     let device_measurement: Measurement = match serde_json::from_str(data) {
         Ok(dev) => dev,
-        Err(_) => {
+        Err(e) => {
+            eprintln!("Error: Failed to parse incoming JSON payload: {:?}", e);
+            eprintln!("Raw Payload: {}", data);
             return Status::BadRequest;
         }
     };
+
     devices.update_device(&device_measurement);
+
     for v in &device_measurement.sensordatavalues {
         if !devices.supported(v) {
+            println!("Skipping unsupported sensor: {}", v.value_type);
             continue;
         }
+
         if (!devices.seen(&device_measurement.airrohr, v)
             && devices.advertise(&device_measurement.airrohr, v))
             || devices.send_data(&device_measurement.airrohr, v)
         {
+            eprintln!(
+                "Error: Aborting API processing due to MQTT failure for {}",
+                v.value_type
+            );
             return Status::InternalServerError;
         }
     }
@@ -278,12 +334,14 @@ fn server() -> _ {
         .add_source(config::File::with_name("Settings"))
         .build()
         .expect("failed to read Settings.toml");
+
     let file = File::open(
         &settings
             .get_string("sensors")
             .expect("failed to get sensor definitions"),
     )
     .expect("unable to open def file");
+
     let bridge = Bridge::new(
         &settings
             .get_string("server")
@@ -297,9 +355,10 @@ fn server() -> _ {
         serde_json::from_reader(BufReader::new(file)).expect("failed to parse definitions"),
     );
 
-    println!("Starting airrohr-mqtt-addon");
+    println!("Starting airrohr-mqtt-addon...");
 
     rocket::build()
         .mount("/", routes![api])
+        .register("/", catchers![internal_error])
         .manage(Arc::new(Mutex::new(bridge)))
 }
