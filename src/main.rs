@@ -142,6 +142,7 @@ struct Bridge {
     devices: HashMap<String, BridgeDev>,
     mqtt: Client,
     sensors: HashMap<String, Sensor>,
+    unsupported_sensors_seen: HashSet<String>, 
 }
 
 type BridgeReference = Arc<Mutex<Bridge>>;
@@ -172,6 +173,7 @@ impl Bridge {
             devices: HashMap::<String, BridgeDev>::new(),
             mqtt,
             sensors,
+            unsupported_sensors_seen: HashSet::new(), 
         }
     }
 
@@ -310,7 +312,9 @@ fn api(dev_ref: &State<BridgeReference>, data: &str) -> Status {
 
     for v in &device_measurement.sensordatavalues {
         if !devices.supported(v) {
-            println!("Skipping unsupported sensor: {}", v.value_type);
+            if devices.unsupported_sensors_seen.insert(v.value_type.clone()) {
+                println!("Skipping unsupported sensor: {}", v.value_type);
+            }
             continue;
         }
 
