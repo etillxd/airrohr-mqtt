@@ -159,14 +159,20 @@ impl Bridge {
             .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(140))
             .finalize();
 
-        if let Err(e) = mqtt.connect(conn_opts) {
-            eprintln!(
-                "CRITICAL: Failed to connect to MQTT broker at {}: {:?}",
-                mqtturi, e
-            );
-            panic!("Could not connect to MQTT broker.");
-        } else {
-            println!("Successfully connected to MQTT broker at {}", mqtturi);
+        loop {
+            match mqtt.connect(conn_opts.clone()) {
+                Ok(_) => {
+                    println!("Successfully connected to MQTT broker at {}", mqtturi);
+                    break; // Exit the loop on success
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Failed to connect to MQTT broker at {}: {:?}. Retrying in 5 seconds...",
+                        mqtturi, e
+                    );
+                    std::thread::sleep(Duration::from_secs(5));
+                }
+            }
         }
 
         Bridge {
